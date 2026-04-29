@@ -64,10 +64,20 @@ public class TokenProvider(
             
             logger.LogInformation("Login page loaded...");
             
-            // Microsoft Login Button
-            var microsoftButton = _page.Locator("#microsoft-auth-button");
-            await microsoftButton.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
-            await microsoftButton.ClickAsync();
+            var moreOptionsButton = _page.GetByTestId("more-options-button-idf-testid");
+
+            if (await moreOptionsButton.CountAsync() > 0)
+            {
+                await moreOptionsButton.ClickAsync();
+                await moreOptionsButton.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+                await _page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Microsoft" }).ClickAsync();
+            }
+            else
+            {
+                var alternativeMicrosoftButton = _page.Locator("#microsoft-auth-button");
+                await alternativeMicrosoftButton.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+                await alternativeMicrosoftButton.ClickAsync();
+            }
             
             logger.LogInformation("Filling in e-mail...");
             
