@@ -125,7 +125,7 @@ public class CsvService(IOptions<ClockWorkAutoTimerOptions> options, ILogger<Csv
         foreach (var taskId in taskIds)
         {
             var url = $"https://{options.Value.SubDomain}.atlassian.net/rest/api/3/issue/{taskId}";
-
+            Console.WriteLine(url);
             try
             {
                 var response = await client.GetAsync(url);

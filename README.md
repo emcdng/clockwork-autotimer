@@ -64,7 +64,7 @@ After build, install Playwright browser runtime:
 (Use the correct output path if you build in `Release`.)
 
 ```bash
-pwsh ./bin/Debug/net10.0/playwright.ps1 install
+pwsh ./Emcoding.ClockWorkAutoTimer/bin/Debug/net10.0/playwright.ps1 install
 ```
 
 
@@ -76,13 +76,13 @@ pwsh ./bin/Debug/net10.0/playwright.ps1 install
 
 Before running, update `ClockWorkAutoTimerOptions` in `appsettings.json`.
 
-At minimum, you asked to adjust:
+At minimum, you need to adjust:
 
 - `UserId`
 - `UserEmail`
 - `UserPassword`
 - `JiraUserApiToken`
-- `CompanyDomain` (e.g. `example.com`)
+- `SubDomain` (as in `https://sub-domain.atlassian.net`)
 
 Also required for correct execution:
 
@@ -97,7 +97,22 @@ Also required for correct execution:
 Example template:
 
 ```json
-{ "ClockWorkAutoTimerOptions": { "UserId": "your-user-id", "UserEmail": "your.email@company.com", "UserPassword": "your-password", "JiraUserApiToken": "your-jira-api-token", "CompanyDomain": "your-company-domain", "AppId": "your-app-id", "AppEnvId": "your-app-env-id", "Headless": false, "ClockworkDescriptionColumnNumber": 3, "ClockworkDateColumnNumber": 2, "ClockworkTimeSpentColumnNumber": 4, "WaitingForTwoFactorSeconds": 25 } }
+{
+    "ClockWorkAutoTimerOptions": {
+        "UserId": "your-user-id",
+        "UserEmail": "your.email@company.com",
+        "UserPassword": "your-password",
+        "JiraUserApiToken": "your-jira-api-token",
+        "SubDomain": "jira-sub-domain",
+        "AppId": "your-app-id",
+        "AppEnvId": "your-app-env-id",
+        "Headless": false,
+        "ClockworkDescriptionColumnNumber": 3,
+        "ClockworkDateColumnNumber": 2,
+        "ClockworkTimeSpentColumnNumber": 4,
+        "WaitingForTwoFactorSeconds": 25
+    }
+}
 ```
 
 
@@ -107,9 +122,15 @@ Example template:
 
 ## CSV requirements
 
+> For a sample CSV file, refer to ['sample-bookings.csv'](./sample-bookings.csv)
+
 - The file must exist and be passed as the first CLI argument.
 - Separator: `;`
 - First row is treated as header (processing starts from row 2).
+- There must be at least 5 columns, rows with less columns are ignored.
+- Row keys starting with 0
+- Date column must be yyyy-MM-dd format (e.g. `2026-03-01`)
+- Time column must be h:mm format (e.g. `1:30` for 1 hour 30 minutes)
 - Description column must include a Jira key like `#DISPO-123`.
 - Date format must be: `yyyy-MM-dd`
 - Time format must be: `HH:mm`
@@ -123,6 +144,7 @@ If Jira keys cannot be resolved, processing stops with an error.
 From the project directory:
 
 ```bash
+cd Emcoding.ClockWorkAutoTimer/
 dotnet run "<path-to-csv-file>"
 ```
 

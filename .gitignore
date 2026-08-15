@@ -417,4 +417,6 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
+**/*.Development.json
 **/logs/
+**/input-files/

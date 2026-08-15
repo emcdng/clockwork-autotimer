@@ -101,7 +101,8 @@ public class ClockworkService(
             }
             else
             {
-                logger.LogError("Error submitting work time: {StatusCode} {ReasonPhrase}", response.StatusCode, response.ReasonPhrase);
+                logger.LogError("Error submitting work time: {StatusCode} {ReasonPhrase}: {ReasonMessage}",
+                    response.StatusCode, response.ReasonPhrase, await response.Content.ReadAsStringAsync());
             }
         }
         catch (Exception ex)

@@ -21,8 +21,16 @@ class Program
         {
             Log.Information("ClockWork AutoTimer started...");
             
+            var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") 
+                ?? "Development";
+            
+            Log.Information("Environment: {Environment}", environment);
+            
             var config = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: false)
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                .AddJsonFile($"appsettings.{environment}.json", optional: true, reloadOnChange: true)
+                .AddEnvironmentVariables()
                 .Build();
         
             var services = new ServiceCollection();
