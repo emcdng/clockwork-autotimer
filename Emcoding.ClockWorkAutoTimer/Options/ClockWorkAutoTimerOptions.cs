@@ -42,4 +42,7 @@ public class ClockWorkAutoTimerOptions
     
     [Required]
     public int WaitingForTwoFactorSeconds { get; set; }
+
+    [Required(AllowEmptyStrings = false)]
+    public string JiraProjectShort { get; set; } = "MYPROJ";
 }

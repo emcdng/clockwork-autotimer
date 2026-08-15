@@ -93,6 +93,7 @@ Also required for correct execution:
 - `ClockworkDateColumnNumber`
 - `ClockworkTimeSpentColumnNumber`
 - `WaitingForTwoFactorSeconds`
+- `JiraProjectShort`
 
 Example template:
 
@@ -110,7 +111,8 @@ Example template:
         "ClockworkDescriptionColumnNumber": 3,
         "ClockworkDateColumnNumber": 2,
         "ClockworkTimeSpentColumnNumber": 4,
-        "WaitingForTwoFactorSeconds": 25
+        "WaitingForTwoFactorSeconds": 25,
+        "JiraProjectShort": "your-jira-project-short-name"
     }
 }
 ```
@@ -132,6 +134,7 @@ Example template:
 - Date column must be yyyy-MM-dd format (e.g. `2026-03-01`)
 - Time column must be h:mm format (e.g. `1:30` for 1 hour 30 minutes)
 - Description column must include a Jira key like `#DISPO-123`.
+- Jira key prefix is configurable through `JiraTaskKeyPrefix` (e.g., `DISPO`).
 - Date format must be: `yyyy-MM-dd`
 - Time format must be: `HH:mm`
 

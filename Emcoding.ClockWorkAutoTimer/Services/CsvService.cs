@@ -19,7 +19,7 @@ public class CsvService(IOptions<ClockWorkAutoTimerOptions> options, ILogger<Csv
     public async Task<IEnumerable<ClockWorkTimeEntry>> InitAsync(string pathToCsv)
     {
         var result = new List<ClockWorkTimeEntry>();
-        var missingDispoIds = new HashSet<string>();
+        var missingIssueIds = new HashSet<string>();
 
         if (!File.Exists(pathToCsv))
         {
@@ -36,22 +36,23 @@ public class CsvService(IOptions<ClockWorkAutoTimerOptions> options, ILogger<Csv
             var date = DateTime.ParseExact(columns[options.Value.ClockworkDateColumnNumber], "yyyy-MM-dd", CultureInfo.InvariantCulture);
             var rawDescription = columns[options.Value.ClockworkDescriptionColumnNumber];
 
-            // Extract description and DISPO ID
-            var taksKeyMatch = Regex.Match(rawDescription, @"#(DISPO-\d{1,12})");
+            // Extract description and Issue Id
+            var escapedPrefix = Regex.Escape(options.Value.JiraProjectShort);
+            var taskKeyMatch = Regex.Match(rawDescription, $@"#({escapedPrefix}-\d{{1,12}})");
 
-            if (!taksKeyMatch.Success)
+            if (!taskKeyMatch.Success)
             {
                 Log.Warning("Line {I}: Could not parse task ID in description: \\\"{RawDescription}\\\"", i + 1, rawDescription);
                 continue;
             }
             
-            var taskKey = taksKeyMatch.Groups[1].Value.Trim();
+            var taskKey = taskKeyMatch.Groups[1].Value.Trim();
             
             var description = Regex.Replace(rawDescription, $"#{taskKey}", "").Replace("\"", "").Replace(" - ", "").Trim();
             
-            if (!missingDispoIds.Contains(taskKey))
+            if (!missingIssueIds.Contains(taskKey))
             {
-                missingDispoIds.Add(taskKey);
+                missingIssueIds.Add(taskKey);
             }
 
             var timeParts = columns[options.Value.ClockworkTimeSpentColumnNumber].Split(':');
@@ -74,12 +75,12 @@ public class CsvService(IOptions<ClockWorkAutoTimerOptions> options, ILogger<Csv
             });
         }
 
-        if (missingDispoIds.Count == 0)
+        if (missingIssueIds.Count == 0)
         {
             return result;
         }
         
-        TaskIssueIdDictionary = await GetIssueIdsByTaskIdsAsync(missingDispoIds);
+        TaskIssueIdDictionary = await GetIssueIdsByTaskIdsAsync(missingIssueIds);
         
         result = GetEnrichedClockWorkTimeEntriesWithIssueIds(result);
         
@@ -88,11 +89,11 @@ public class CsvService(IOptions<ClockWorkAutoTimerOptions> options, ILogger<Csv
             return result;
         }
             
-        var missingIssueIds = result.Where(entry => entry.IssueId == 0).Select(entry => entry.TaskKey).Distinct().ToList();
+        var unresolvedTaskKeys = result.Where(entry => entry.IssueId == 0).Select(entry => entry.TaskKey).Distinct().ToList();
             
-        Log.Error("Processing stopped because of missing Task IDs: {MissingDispoIds}", string.Join(", ", missingIssueIds));
+        Log.Error("Processing stopped because of missing Task IDs: {MissingIssueIds}", string.Join(", ", unresolvedTaskKeys));
             
-        throw new Exception("Missing DISPO IDs");
+        throw new Exception("Missing Issue IDs");
 
     }
 
