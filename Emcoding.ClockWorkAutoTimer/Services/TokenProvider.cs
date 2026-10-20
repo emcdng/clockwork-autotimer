@@ -101,28 +101,141 @@ public class TokenProvider(
             await signInButton.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
             await signInButton.ClickAsync();  
             
-            // Microsoft Authenticator Number
+            // Check whether MFA is required or if the authentication flow proceeds without it
             var displaySignDiv = _page.Locator("#idRichContext_DisplaySign");
-            await displaySignDiv.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible });
+            var kmsiButton = _page.Locator("#idSIButton9");
 
-            var authenticatorNumber = await displaySignDiv.InnerTextAsync();
-            
-            logger.LogWarning("Waiting for {Seconds} seconds to confirm number {AuthenticatorNumber} in your Microsoft Authenticator App to continue", options.Value.WaitingForTwoFactorSeconds,  authenticatorNumber);
-            
-            await WaitWithCountdownAsync(options.Value.WaitingForTwoFactorSeconds);
-            
-            var disappearedTask = displaySignDiv.WaitForAsync(new LocatorWaitForOptions
+            var isMfaRequired = false;
+            var detectionTimeout = TimeSpan.FromSeconds(10);
+            var detectionStart = DateTime.UtcNow;
+
+            while (DateTime.UtcNow - detectionStart < detectionTimeout)
             {
-                State = WaitForSelectorState.Detached // or Hidden
-            });
+                try
+                {
+                    if (await displaySignDiv.IsVisibleAsync())
+                    {
+                        isMfaRequired = true;
+                        break;
+                    }
 
-            var navigatedTask = _page.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
+                    if (await kmsiButton.IsVisibleAsync())
+                    {
+                        break;
+                    }
 
-            var finished = await Task.WhenAny(disappearedTask, navigatedTask);
+                    var currentUrl = _page.Url;
+                    if (!string.IsNullOrEmpty(currentUrl) &&
+                        !currentUrl.Contains("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) &&
+                        !currentUrl.Contains("login.live.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+                }
+                catch
+                {
+                    // Ignore transient exceptions during rapid redirects
+                }
 
-            logger.LogInformation(finished == disappearedTask
-                ? "Microsoft Authenticator number was confirmed successfully."
-                : "Page navigation/load detected.");
+                await Task.Delay(200);
+            }
+
+            if (isMfaRequired)
+            {
+                var authenticatorNumber = await displaySignDiv.InnerTextAsync();
+
+                logger.LogWarning("Waiting up to {Seconds} seconds to confirm number {AuthenticatorNumber} in your Microsoft Authenticator App to continue", options.Value.WaitingForTwoFactorSeconds, authenticatorNumber);
+
+                try
+                {
+                    using var mfaTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(options.Value.WaitingForTwoFactorSeconds));
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, mfaTimeoutCts.Token);
+
+                    var disappearedTask = displaySignDiv.WaitForAsync(new LocatorWaitForOptions
+                    {
+                        State = WaitForSelectorState.Hidden
+                    });
+                    var navigatedTask = _page.WaitForLoadStateAsync(LoadState.DOMContentLoaded);
+
+                    var completedTask = await Task.WhenAny(disappearedTask, navigatedTask).WaitAsync(linkedCts.Token);
+
+                    logger.LogInformation(completedTask == disappearedTask
+                        ? "Microsoft Authenticator number was confirmed successfully."
+                        : "Page navigation/load detected.");
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.LogInformation("MFA wait period ended.");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "MFA wait finished with exception: {Message}", ex.Message);
+                }
+            }
+            else
+            {
+                logger.LogInformation("MFA was not required or was skipped.");
+            }
+
+            // Handle optional 'Stay signed in?' prompt and wait for redirection to Atlassian to complete
+            var authRedirectTimeout = TimeSpan.FromSeconds(60);
+            var authRedirectStart = DateTime.UtcNow;
+
+            while (DateTime.UtcNow - authRedirectStart < authRedirectTimeout)
+            {
+                try
+                {
+                    if (await kmsiButton.IsVisibleAsync())
+                    {
+                        logger.LogInformation("Confirming 'Stay signed in' prompt...");
+                        await kmsiButton.ClickAsync();
+                        await Task.Delay(500);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "KMSI prompt check: {Message}", ex.Message);
+                }
+
+                var currentUrl = _page.Url ?? string.Empty;
+
+                var isOnMicrosoft = currentUrl.Contains("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) ||
+                                    currentUrl.Contains("login.live.com", StringComparison.OrdinalIgnoreCase) ||
+                                    currentUrl.Contains("msft.sts.microsoft.com", StringComparison.OrdinalIgnoreCase);
+
+                var isAtlassianLoginOrAuth = currentUrl.Contains("id.atlassian.com/login", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("id.atlassian.com/v2/login", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("id.atlassian.com/logout", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("auth.atlassian.com", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("/login/saml", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("/callback", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("/login/authorize", StringComparison.OrdinalIgnoreCase) ||
+                                             currentUrl.Contains("social_login_managed_user", StringComparison.OrdinalIgnoreCase);
+
+                var isAuthComplete = !isOnMicrosoft && !isAtlassianLoginOrAuth && !string.IsNullOrWhiteSpace(currentUrl) && (
+                    currentUrl.Contains("home.atlassian.com", StringComparison.OrdinalIgnoreCase) ||
+                    currentUrl.Contains("start.atlassian.com", StringComparison.OrdinalIgnoreCase) ||
+                    currentUrl.Contains($"{companyDomain}.atlassian.net", StringComparison.OrdinalIgnoreCase) ||
+                    currentUrl.Contains("id.atlassian.com", StringComparison.OrdinalIgnoreCase) ||
+                    currentUrl.Contains("atlassian.net", StringComparison.OrdinalIgnoreCase));
+
+                if (isAuthComplete)
+                {
+                    logger.LogInformation("Authentication completed successfully ({Url}). Navigating to Jira...", currentUrl);
+                    break;
+                }
+
+                await Task.Delay(500);
+            }
+
+            try
+            {
+                await _page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new PageWaitForLoadStateOptions { Timeout = 15000 });
+            }
+            catch
+            {
+                // Ignore load state timeout if already transitioned
+            }
             
             logger.LogInformation($"Lade {companyDomain}.atlassian.net ...");
             
@@ -153,7 +266,7 @@ public class TokenProvider(
                 logger.LogInformation("ClockWork bearer token received.");
             }
             
-            return authorizationHeader.Replace("Bearer ", "");
+            return CleanToken(authorizationHeader);
         }
         finally
         {
@@ -200,19 +313,73 @@ public class TokenProvider(
     {
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        void OnRequest(object? _, IRequest request)
+        void TryExtractTokenFromRequest(IRequest request)
         {
-            if (!request.Url.StartsWith("https://app.clockwork.report/worklogs.json", StringComparison.OrdinalIgnoreCase))
-                return;
+            try
+            {
+                var url = request.Url;
+                if (!url.Contains("clockwork.report", StringComparison.OrdinalIgnoreCase))
+                    return;
 
-            if (request.Headers.TryGetValue("authorization", out var auth) && !string.IsNullOrWhiteSpace(auth))
-                tcs.TrySetResult(auth);
+                // 1. Check Authorization header (case-insensitive)
+                foreach (var header in request.Headers)
+                {
+                    if (string.Equals(header.Key, "authorization", StringComparison.OrdinalIgnoreCase) &&
+                        !string.IsNullOrWhiteSpace(header.Value))
+                    {
+                        var token = CleanToken(header.Value);
+                        if (!string.IsNullOrWhiteSpace(token))
+                        {
+                            tcs.TrySetResult(token);
+                            return;
+                        }
+                    }
+                }
+
+                // 2. Check query parameter `jwt`
+                var match = System.Text.RegularExpressions.Regex.Match(url, @"[?&]jwt=([^&#]+)");
+                if (match.Success)
+                {
+                    var jwtParam = Uri.UnescapeDataString(match.Groups[1].Value);
+                    var token = CleanToken(jwtParam);
+                    if (!string.IsNullOrWhiteSpace(token))
+                    {
+                        tcs.TrySetResult(token);
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore extraction failures on individual requests
+            }
         }
+
+        void OnRequest(object? _, IRequest request) => TryExtractTokenFromRequest(request);
 
         page.Request += OnRequest;
 
         try
         {
+            // Check existing frames in case Clockwork is already loaded/loading
+            foreach (var frame in page.Frames)
+            {
+                var frameUrl = frame.Url;
+                if (!string.IsNullOrEmpty(frameUrl) && frameUrl.Contains("clockwork.report", StringComparison.OrdinalIgnoreCase))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(frameUrl, @"[?&]jwt=([^&#]+)");
+                    if (match.Success)
+                    {
+                        var jwtParam = Uri.UnescapeDataString(match.Groups[1].Value);
+                        var token = CleanToken(jwtParam);
+                        if (!string.IsNullOrWhiteSpace(token))
+                        {
+                            return token;
+                        }
+                    }
+                }
+            }
+
             await page.GotoAsync(myWorkUrl, new PageGotoOptions
             {
                 WaitUntil = WaitUntilState.DOMContentLoaded,
@@ -227,19 +394,25 @@ public class TokenProvider(
         }
         catch (OperationCanceledException)
         {
-            throw new TimeoutException("Authorization header from worklogs.json could not be captured within 2 minutes.");
+            throw new TimeoutException("Authorization token from clockwork.report could not be captured within 2 minutes.");
         }
         finally
         {
             page.Request -= OnRequest;
         }
     }
-    
-    private async Task WaitWithCountdownAsync(int seconds)
+
+    private static string CleanToken(string token)
     {
-        for (var i = seconds; i > 0; i--)
-        {
-            await Task.Delay(1000);
-        }
+        if (string.IsNullOrWhiteSpace(token))
+            return string.Empty;
+
+        var trimmed = token.Trim();
+        if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return trimmed[7..].Trim();
+        if (trimmed.StartsWith("JWT ", StringComparison.OrdinalIgnoreCase))
+            return trimmed[4..].Trim();
+
+        return trimmed;
     }
 }
