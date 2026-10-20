@@ -21,12 +21,13 @@ public class CsvService(IOptions<ClockWorkAutoTimerOptions> options, ILogger<Csv
         var result = new List<ClockWorkTimeEntry>();
         var missingIssueIds = new HashSet<string>();
 
-        if (!File.Exists(pathToCsv))
+        var fullPath = Path.GetFullPath(pathToCsv);
+        if (!File.Exists(fullPath))
         {
-            throw new FileNotFoundException($"File {pathToCsv} doesn't exist");
+            throw new FileNotFoundException($"File {fullPath} doesn't exist");
         }
 
-        var csvLines = await File.ReadAllLinesAsync(pathToCsv);
+        var csvLines = await File.ReadAllLinesAsync(fullPath);
 
         for (var i = 1; i < csvLines.Length; i++)
         {
