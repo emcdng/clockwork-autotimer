@@ -345,7 +345,6 @@ public class TokenProvider(
                     if (!string.IsNullOrWhiteSpace(token))
                     {
                         tcs.TrySetResult(token);
-                        return;
                     }
                 }
             }
